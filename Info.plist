@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>DocuFind</string>
+	<key>CFBundleExecutable</key>
+	<string>DocuFind</string>
+	<key>CFBundleIconFile</key>
+	<string>DocuFind</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.theodeschampsberger.DocuFind</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>DocuFind</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.theodeschampsberger.DocuFind</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>docufind</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>8</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>DocuFind searches the files you choose to index on this Mac.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>DocuFind searches the files you choose to index on this Mac.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>DocuFind searches the files you choose to index on this Mac.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Théo Deschamps-Berger. MIT License.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>DocuFind listens only while you record a search. The recording stays on this Mac.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>DocuFind indexes mounted folders that you choose to include.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>DocuFind indexes connected drives that you choose to include.</string>
+</dict>
+</plist>

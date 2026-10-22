@@ -1,0 +1,10 @@
+# The model runs on the Neural Engine through Core ML (omni_coreml.py); PyTorch is not needed.
+# These ranges are not a lock file; setup.sh uses the verified macOS arm64 lock on Python 3.12/3.13 when available.
+coremltools>=9.0,<10
+tokenizers>=0.21,<1
+huggingface_hub>=1,<3
+numpy>=1.26,<3
+Pillow>=10.4,<13
+librosa>=0.10.2,<1
+soundfile>=0.12,<1
+pypdf>=5,<7

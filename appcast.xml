@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>DocuFind</title>
+        <language>en</language>
+        <item>
+            <title>DocuFind 0.1.0</title>
+            <pubDate>Thu, 22 Oct 2026 06:05:23 GMT</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/Theodb/DocuFind/releases/download/v0.1.0/DocuFind-0.1.0.dmg" length="9021698" type="application/octet-stream" sparkle:edSignature="m9r+AA9vjJ11RX2Z0zjieWyjuREWiYT4TZLMxzFwOWW51NALNFgwphlgp9pqn4SGBKhZHj0DYSxKqQSvXTILAw=="/>
+        </item>
+    </channel>
+</rss>

@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# Swift and Xcode
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local data and release output (kept outside the repository by default)
+DocuFindLocal/
+dist/
+*.dmg
+*.dmg.sha256
+
+# Third-party downloads (scripts/fetch-sparkle.sh)
+vendor/
+
+# Kept locally: internal test reports and the Core ML conversion tool
+docs/benchmarks/
+tools/coreml/
+
+# Signing certificates, keys and credentials: never committed
+*.p12
+*.pem
+*.p8
+.env
+*private-key*
