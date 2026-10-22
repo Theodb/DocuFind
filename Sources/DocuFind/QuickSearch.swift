@@ -250,13 +250,13 @@ struct QuickSearchView: View {
         .padding(.horizontal, 30).padding(.top, 84)
         .frame(width: 860, height: 660, alignment: .top)
         // Observed here, not inside the glass container: that renders in its own AppKit host.
-        .onChange(of: query) { _, _ in schedule() }
+        .onChange(of: query) { _, _ in edited() }
         .onAppear {
             focused = true
             QuickSearchController.shared.keyHandler = { handleKey($0) }
             if !initialQuery.isEmpty {
                 query = initialQuery
-                schedule()
+                submit()
             }
         }
     }
@@ -507,8 +507,8 @@ struct QuickSearchView: View {
         return true
     }
 
-    /// Searches shortly after typing pauses; the model stays loaded, so this feels live.
-    private func schedule() {
+    /// Typing only edits the text: the search runs on Return, which then hands the keys to the results.
+    private func edited() {
         pending?.cancel()
         refining?.cancel()
         previewing = false
@@ -518,11 +518,6 @@ struct QuickSearchView: View {
             return
         }
         reference = nil
-        pending = Task {
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
-            await run(text)
-        }
     }
 
     private func run(_ text: String) async {
@@ -583,11 +578,11 @@ struct QuickSearchView: View {
         searching = false
     }
 
-    /// Return searches now if the search hasn't run yet, then hands the keys to the results.
+    /// Return searches what is typed (unless its results are already shown), then hands the keys to the results.
     private func submit() {
         if recorder.isRecording { recorder.stop(); return }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty && text != searchedQuery { pending?.cancel(); Task { await run(text) } }
+        if !text.isEmpty && text != searchedQuery { pending?.cancel(); pending = Task { await run(text) } }
         if !text.isEmpty || !shown.isEmpty { QuickSearchController.shared.leaveField() }
     }
 
