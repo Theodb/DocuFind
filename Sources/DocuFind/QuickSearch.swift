@@ -211,6 +211,8 @@ struct QuickSearchView: View {
     @State private var lastPointer = NSPoint.zero
     @State private var searching = false
     @State private var searchedQuery = ""
+    /// The text last sent to search: its results are on their way or shown.
+    @State private var requested = ""
     @State private var reference: URL?
     @State private var failure: String?
     @State private var pending: Task<Void, Never>?
@@ -232,7 +234,8 @@ struct QuickSearchView: View {
         VStack(spacing: isCarousel ? 18 : 8) {
             bar
             if previewing, shown.indices.contains(selection) { previewPane(shown[selection]) }
-            else if isCarousel { carousel } else { list }
+            // Results for an earlier text step back while a new one is typed, until Return searches it.
+            else if isCarousel { carousel.opacity(showsResultsForField ? 1 : 0.45) } else { list.opacity(showsResultsForField ? 1 : 0.45) }
             if let failure {
                 Text(failure).font(.system(size: 12.5)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     .padding(.horizontal, 18).padding(.vertical, 12)
@@ -256,7 +259,8 @@ struct QuickSearchView: View {
             QuickSearchController.shared.keyHandler = { handleKey($0) }
             if !initialQuery.isEmpty {
                 query = initialQuery
-                submit()
+                let text = initialQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { requested = text; searching = true; pending = Task { await run(text) } }
             }
         }
     }
@@ -473,6 +477,8 @@ struct QuickSearchView: View {
         // (Space again goes back) or plays a recording, Return opens and Esc steps back. Other keys do nothing
         // until the field is clicked.
         if QuickSearchController.shared.keysGoToResults() {
+            // Until the new results arrive, the old ones must not be opened or played by a quick second key.
+            if searching && code != 53 { return code != 48 }
             switch code {
             case 123: move(-1)
             case 124: move(1)
@@ -509,14 +515,19 @@ struct QuickSearchView: View {
 
     /// Typing only edits the text: the search runs on Return, which then hands the keys to the results.
     private func edited() {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Same words as the search on its way or shown (only spaces changed, or the text was set to search).
+        guard text != requested || reference != nil else { return }
         pending?.cancel()
         refining?.cancel()
         previewing = false
-        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        requested = ""
         guard !text.isEmpty else {
             if reference == nil { results = []; searchedQuery = ""; searching = false; failure = nil }
             return
         }
+        // A search still on its way was for other text or a file: it is dropped when it returns.
+        searching = false
         reference = nil
     }
 
@@ -530,6 +541,7 @@ struct QuickSearchView: View {
         } catch {
             guard text == query.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
             searching = false
+            requested = ""  // So Return tries again.
             failure = error.localizedDescription
         }
     }
@@ -543,6 +555,7 @@ struct QuickSearchView: View {
         pending?.cancel()
         refining?.cancel()
         reference = url
+        requested = ""
         query = ""
         searching = true
         failure = nil
@@ -582,7 +595,7 @@ struct QuickSearchView: View {
     private func submit() {
         if recorder.isRecording { recorder.stop(); return }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !text.isEmpty && text != searchedQuery { pending?.cancel(); pending = Task { await run(text) } }
+        if !text.isEmpty && text != requested { pending?.cancel(); requested = text; searching = true; pending = Task { await run(text) } }
         if !text.isEmpty || !shown.isEmpty { QuickSearchController.shared.leaveField() }
     }
 
