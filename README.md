@@ -6,7 +6,7 @@
 <p align="center">Documents, photos and recordings, searched by meaning, right on your Mac.</p>
 
 <p align="center">
-  <a href="https://github.com/Theodb/DocuFind/releases/latest"><img alt="Download for Mac" src="https://img.shields.io/badge/Download_for_Mac-0A84FF?style=for-the-badge&logo=apple&logoColor=white"></a>
+  <a href="https://github.com/Theodb/DocuFind/releases/latest/download/DocuFind-0.1.0.dmg"><img alt="Download for Mac" src="https://img.shields.io/badge/Download_for_Mac-0A84FF?style=for-the-badge&logo=apple&logoColor=white"></a>
 </p>
 <p align="center"><sub>macOS 15 or later · Running on Apple silicon · Free and open source</sub></p>
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="https://huggingface.co/BidirLM"><img alt="BidirLM on Hugging Face" src="https://img.shields.io/badge/Hugging_Face-BidirLM--Omni-FFD21E?style=for-the-badge&labelColor=555555&logo=huggingface&logoColor=FFD21E"></a>
 </p>
 
-https://github.com/user-attachments/assets/18118b2a-771d-4b75-86e9-1fa8bc473cb0
+https://github.com/user-attachments/assets/4433cbd7-a72c-4600-b003-7dbc6344618e
 
 # DocuFind
 
@@ -54,7 +54,7 @@ DocuFind runs the whole model, for text, photos and recordings, on your Mac's Ne
 
 You need an Apple silicon Mac with macOS 15 or later.
 
-1. Grab the disk image from [Releases](https://github.com/Theodb/DocuFind/releases) and drag **DocuFind** into **Applications**.
+1. [Download DocuFind](https://github.com/Theodb/DocuFind/releases/latest/download/DocuFind-0.1.0.dmg), open the disk image and drag **DocuFind** into **Applications**. Older versions and release notes are on the [Releases](https://github.com/Theodb/DocuFind/releases) page.
 2. Follow the welcome guide: it installs everything and downloads the model once (about 3.5 GB). Pick your folders, hit **Start Indexing**.
 
 ## Using it
