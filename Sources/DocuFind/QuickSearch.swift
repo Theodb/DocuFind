@@ -40,6 +40,7 @@ final class QuickSearchController {
     static let shared = QuickSearchController()
     private var panel: QuickSearchPanel?
     private var monitor: Any?
+    private var clickMonitor: Any?
     /// Opening from a link activates the app, which briefly takes focus from the panel.
     private var openedAt = Date.distantPast
     /// The visible view's handler for arrow keys, which a text field would otherwise keep for its cursor.
@@ -127,10 +128,12 @@ final class QuickSearchController {
     }
 
     /// Whether the keys go to the results: after a search is entered, until the field is clicked again.
+    /// If the field takes the cursor back on its own (SwiftUI restoring focus), it is let go again, so
+    /// Space can never type over the search.
     func keysGoToResults() -> Bool {
         if keysToResults, let panel, let content = panel.contentView, let editor = Self.textField(in: content)?.currentEditor(),
            panel.firstResponder === editor {
-            keysToResults = false
+            panel.makeFirstResponder(nil)
         }
         return keysToResults
     }
@@ -183,6 +186,15 @@ final class QuickSearchController {
     }
 
     private func installKeyMonitor() {
+        // Only a click on the field gives the keys back to the text.
+        if clickMonitor == nil {
+            clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                guard let self, self.keysToResults, let panel = event.window as? QuickSearchPanel, let content = panel.contentView,
+                      let field = Self.textField(in: content) else { return event }
+                if field.bounds.contains(field.convert(event.locationInWindow, from: nil)) { self.keysToResults = false }
+                return event
+            }
+        }
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.window is QuickSearchPanel,
@@ -596,7 +608,10 @@ struct QuickSearchView: View {
         if recorder.isRecording { recorder.stop(); return }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty && text != requested { pending?.cancel(); requested = text; searching = true; pending = Task { await run(text) } }
-        if !text.isEmpty || !shown.isEmpty { QuickSearchController.shared.leaveField() }
+        if !text.isEmpty || !shown.isEmpty {
+            focused = false
+            QuickSearchController.shared.leaveField()
+        }
     }
 
     /// Space on a result: plays or pauses a recording; shows anything else large, or goes back.
