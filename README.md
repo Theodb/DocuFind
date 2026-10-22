@@ -29,6 +29,18 @@ You remember *what* it was, not *where* you put it. Type "that sunset at the bea
 - **Exact words too**: invoice numbers, names, and text inside screenshots
 - **Fast and fresh**: about 50 photos a minute and an hour of recordings in under a minute on an M4, and new files show up on their own
 
+## The model behind it
+
+DocuFind runs on [BidirLM-Omni-2.5B-Embedding](https://huggingface.co/BidirLM/BidirLM-Omni-2.5B-Embedding), our own open embedding model from BidirLM at Diabolocom Research × CentraleSupélec. It places text, images and audio in one shared space, so a few words can find a photo or a recording. It was released by [Nicolas Boizard](https://www.linkedin.com/in/nicolas-boizard/), [Théo Deschamps-Berger](https://www.linkedin.com/in/theodb), Hippolyte Gisserot-Boukhlef, Céline Hudelot and Pierre Colombo ([paper](https://arxiv.org/abs/2604.02045)).
+
+| | Score | Among models under 4B parameters |
+|---|---|---|
+| Audio (MAEB) | 45.2 | #1 |
+| Images (MIEB) | 58.1 | #1 with open training data |
+| Text (MTEB) | 63.1 | #2 with open training data |
+
+<sub>Scores average all tasks (MTEB Multilingual v2, MIEB lite, MAEB beta), from the paper's snapshot of 30 March 2026. See the [MTEB leaderboard](https://huggingface.co/spaces/mteb/leaderboard).</sub>
+
 ## Runs on the Neural Engine
 
 DocuFind runs the whole model, for text, photos and recordings, on your Mac's Neural Engine, Apple's chip for machine learning. For that, BidirLM-Omni was converted to Core ML as part of DocuFind; the converted model is published at [BidirLM-Omni-2.5B-Embedding-CoreML](https://huggingface.co/BidirLM/BidirLM-Omni-2.5B-Embedding-CoreML), so there is no PyTorch to install.
