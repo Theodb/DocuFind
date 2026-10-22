@@ -14,7 +14,7 @@
   <a href="https://huggingface.co/BidirLM"><img alt="BidirLM on Hugging Face" src="https://img.shields.io/badge/Hugging_Face-BidirLM--Omni-FFD21E?style=for-the-badge&labelColor=555555&logo=huggingface&logoColor=FFD21E"></a>
 </p>
 
-https://github.com/user-attachments/assets/bee7b1ba-5f19-4a75-aa14-19febc69ce0a
+https://github.com/user-attachments/assets/18118b2a-771d-4b75-86e9-1fa8bc473cb0
 
 # DocuFind
 
