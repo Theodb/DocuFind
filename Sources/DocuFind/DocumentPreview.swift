@@ -34,7 +34,18 @@ struct DocumentExcerpt: Sendable, Equatable {
             let text = String(decoding: data, as: UTF8.self)
             guard let start = passageStart(in: text, near: offset, snippet: snippet) else { return nil }
             // Back up to the start of the line, so the first line keeps its indentation.
-            let lineStart = text[..<start].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
+            var lineStart = text[..<start].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
+            // A passage at the very end of the file leaves the card nearly empty: start up to two lines earlier, so the
+            // card shows what leads to the passage, which still comes within its first lines.
+            if data.count < (offset + 6000) * 4 {
+                func filled(_ part: Substring) -> Int { part.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count }
+                var context = 0
+                while filled(text[lineStart...]) < 3, context < 2, lineStart > text.startIndex {
+                    let previousEnd = text.index(before: lineStart)
+                    lineStart = text[..<previousEnd].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
+                    if !text[lineStart..<previousEnd].trimmingCharacters(in: .whitespaces).isEmpty { context += 1 }
+                }
+            }
             var lines = text[lineStart...].split(separator: "\n", maxSplits: maxLines + 1, omittingEmptySubsequences: false)
                 .prefix(maxLines).map { $0.replacingOccurrences(of: "\t", with: "    ").replacingOccurrences(of: "\r", with: "") }
             // Drop blank lines at the end, and collapse runs of blank lines to one.
