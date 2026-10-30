@@ -77,17 +77,26 @@ struct DocumentExcerpt: Sendable, Equatable {
         return Int(location[range].filter(\.isNumber)).map { max(0, $0 - 1) }
     }
 
-    /// Where the snippet's opening words appear, searched near the stored offset first, then from the top.
+    /// Where the snippet's opening words appear, searched near the stored offset first, then from the top; without
+    /// them, the stored offset itself.
     fileprivate static func passageStart(in text: String, near offset: Int, snippet: String) -> String.Index? {
+        let stored = position(in: text, offset: offset)
         let words = snippet.replacingOccurrences(of: "…", with: " ").split(whereSeparator: \.isWhitespace).prefix(6)
-        guard words.count >= 2 else { return nil }
+        guard words.count >= 2 else { return stored }
         let pattern = words.map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: #"\s+"#)
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return stored }
         let whole = NSRange(text.startIndex..., in: text)
-        let hint = (text.index(text.startIndex, offsetBy: max(0, offset - 400), limitedBy: text.endIndex) ?? text.endIndex)
-        let near = NSRange(hint..., in: text)
+        let near = NSRange((position(in: text, offset: max(0, offset - 400)) ?? text.endIndex)..., in: text)
         let match = expression.firstMatch(in: text, range: near) ?? expression.firstMatch(in: text, range: whole)
-        return match.flatMap { Range($0.range, in: text)?.lowerBound }
+        return match.flatMap { Range($0.range, in: text)?.lowerBound } ?? stored
+    }
+
+    /// The backend counts offsets in Unicode code points; Swift's characters can each hold several (an emoji, an
+    /// accented letter written in two parts), so counting characters would land past the passage. Rounded down to
+    /// the character the code point belongs to.
+    private static func position(in text: String, offset: Int) -> String.Index? {
+        guard offset > 0, let scalar = text.unicodeScalars.index(text.startIndex, offsetBy: offset, limitedBy: text.endIndex) else { return nil }
+        return scalar == text.endIndex ? scalar : text.rangeOfComposedCharacterSequence(at: scalar).lowerBound
     }
 
     private final class Box: NSObject {
@@ -384,12 +393,13 @@ struct DocumentReader: View {
             ScrollView(document.monospaced ? [.vertical, .horizontal] : .vertical) {
                 // Only the file's text: its name and type are shown around the reader.
                 LazyVStack(alignment: .leading, spacing: document.monospaced ? 2 : 4) {
-                    // The passage is one row, so its mark runs unbroken down all its lines.
+                    // The passage is one row, so its mark runs unbroken down all its lines. Its identity is its first
+                    // line, in the list as well: a lazy stack finds a row it hasn't drawn yet only by the list's id.
                     ForEach(rows(document), id: \.self) { row in
-                        if row >= 0 {
-                            line(document, row).id(row)
+                        if row == document.passage.lowerBound {
+                            passage(document).id(row)
                         } else {
-                            passage(document).id(document.passage.lowerBound)
+                            line(document, row).id(row)
                         }
                     }
                 }
@@ -404,19 +414,24 @@ struct DocumentReader: View {
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.07),
                                          .init(color: .black, location: 0.93), .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))
-            .onAppear {
-                // The passage in the middle of the view, with the file around it, then the reader fades in.
-                proxy.scrollTo(document.passage.lowerBound, anchor: UnitPoint(x: 0, y: 0.5))
-                DispatchQueue.main.async {
-                    withAnimation(.easeOut(duration: 0.22)) { positioned = true }
+            .task(id: document.passage) {
+                // The passage in the middle of the view, with the file around it, then the reader fades in. The stack
+                // is lazy: it only knows the heights of lines it has drawn, so in a long file the first jump to a
+                // passage far down can land short of it. Jumping again once those lines are drawn settles on it; the
+                // reader stays hidden until then, so the jumps don't show.
+                for _ in 0..<4 {
+                    proxy.scrollTo(document.passage.lowerBound, anchor: UnitPoint(x: 0, y: 0.5))
+                    try? await Task.sleep(nanoseconds: 25_000_000)
+                    if Task.isCancelled { return }
                 }
+                withAnimation(.easeOut(duration: 0.22)) { positioned = true }
             }
         }
     }
 
-    /// Each line outside the passage, with -1 standing for the passage as a whole.
+    /// Each line outside the passage, with the passage's first line standing for the passage as a whole.
     private func rows(_ document: FullDocument) -> [Int] {
-        Array(0..<document.passage.lowerBound) + [-1] + Array(document.passage.upperBound..<document.lines.count)
+        Array(0...document.passage.lowerBound) + Array(document.passage.upperBound..<document.lines.count)
     }
 
     private func passage(_ document: FullDocument) -> some View {
@@ -602,6 +617,132 @@ final class ClickablePDFView: PDFView {
     override func mouseDown(with event: NSEvent) {
         guard onClick != nil || onDoubleClick != nil else { return super.mouseDown(with: event) }
         if event.clickCount == 2 { onDoubleClick?() } else if event.clickCount == 1 { onClick?() }
+    }
+}
+
+/// A photo at full resolution that zooms like Preview: pinch, or double-click to look closer and again to fit it back;
+/// once zoomed, scrolling moves around it. Clear around the photo, so whatever is behind it shows at the sides.
+struct ZoomableImage: NSViewRepresentable {
+    let path: String
+    /// Once the full photo is on screen, so a stand-in shown meanwhile can go.
+    var onLoad: () -> Void = {}
+
+    func makeNSView(context: Context) -> ZoomingImageView { ZoomingImageView() }
+
+    func updateNSView(_ view: ZoomingImageView, context: Context) {
+        view.onLoad = onLoad
+        view.load(path)
+    }
+}
+
+final class ZoomingImageView: NSScrollView {
+    var onLoad: () -> Void = {}
+    private let imageView = NSImageView()
+    private var loadedPath: String?
+    /// Where a drag began, in the window, and the part of the photo in view then.
+    private var drag: (point: NSPoint, origin: NSPoint)?
+    private var zoomed: Bool { magnification > 1.01 }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        contentView = CenteringClipView()
+        drawsBackground = false
+        contentView.drawsBackground = false
+        hasVerticalScroller = true
+        hasHorizontalScroller = true
+        autohidesScrollers = true
+        scrollerStyle = .overlay
+        // A photo pans freely in any direction; by default a scroll view keeps each gesture to its main axis,
+        // which is right for a page but makes a zoomed photo move in stiff straight lines.
+        usesPredominantAxisScrolling = false
+        allowsMagnification = true
+        minMagnification = 1
+        maxMagnification = 8
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        documentView = imageView
+        NotificationCenter.default.addObserver(self, selector: #selector(zoomChanged), name: NSScrollView.didEndLiveMagnifyNotification, object: self)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    /// The hand appears once there is something to drag.
+    @objc private func zoomChanged() { window?.invalidateCursorRects(for: self) }
+
+    override func resetCursorRects() {
+        if zoomed { addCursorRect(bounds, cursor: .openHand) }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func load(_ path: String) {
+        guard path != loadedPath else { return }
+        loadedPath = path
+        imageView.image = nil
+        magnification = 1
+        // Decoding a large photo takes a moment: off the main thread.
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let image = UncheckedBox(NSImage(contentsOfFile: path))
+            await MainActor.run {
+                guard let self, self.loadedPath == path, let image = image.value else { return }
+                self.imageView.image = image
+                self.needsLayout = true
+                self.onLoad()
+            }
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        // At 1× the photo fits the box; zooming magnifies from there.
+        guard let size = imageView.image?.size, size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return }
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        let fitted = NSSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        if imageView.frame.size != fitted { imageView.frame = NSRect(origin: .zero, size: fitted) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            // Closer on the point clicked, or back to the whole photo.
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.25
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                if zoomed { animator().magnification = 1 } else { animator().setMagnification(2.5, centeredAt: point) }
+            }, completionHandler: { [weak self] in MainActor.assumeIsolated { self?.zoomChanged() } })
+        } else if zoomed {
+            // Zoomed in, the photo is dragged around like a print under the hand.
+            drag = (event.locationInWindow, contentView.bounds.origin)
+            NSCursor.closedHand.push()
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let drag else { return super.mouseDragged(with: event) }
+        // Window points become the photo's own, smaller units at this zoom; the photo follows the pointer.
+        let dx = (event.locationInWindow.x - drag.point.x) / magnification
+        let dy = (event.locationInWindow.y - drag.point.y) / magnification
+        let origin = NSPoint(x: drag.origin.x - dx, y: drag.origin.y + (contentView.isFlipped ? dy : -dy))
+        contentView.scroll(to: contentView.constrainBoundsRect(NSRect(origin: origin, size: contentView.bounds.size)).origin)
+        reflectScrolledClipView(contentView)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard drag != nil else { return super.mouseUp(with: event) }
+        drag = nil
+        NSCursor.pop()
+    }
+}
+
+/// Keeps a document smaller than its scroll view in the middle, instead of in a corner.
+private final class CenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        guard let document = documentView?.frame else { return rect }
+        if rect.width > document.width { rect.origin.x = (document.width - rect.width) / 2 }
+        if rect.height > document.height { rect.origin.y = (document.height - rect.height) / 2 }
+        return rect
     }
 }
 

@@ -298,6 +298,8 @@ struct QuickSearchView: View {
     var body: some View {
         VStack(spacing: isCarousel ? 18 : 8) {
             bar
+            // The model still loading, or the index still being built: said before the first search, not after it.
+            if SearchStatusNote.shows(model), !previewing { SearchStatusNote(model: model) }
             if previewing, shown.indices.contains(selection) { previewPane(shown[selection]) }
             // Results for an earlier text step back while a new one is typed, until Return searches it.
             else if isCarousel { carousel.opacity(showsResultsForField ? 1 : 0.45) } else { list.opacity(showsResultsForField ? 1 : 0.45) }
@@ -307,7 +309,7 @@ struct QuickSearchView: View {
                     .frame(maxWidth: 600)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             } else if !searching && (!searchedQuery.isEmpty || reference != nil) && results.isEmpty {
-                Text(reference == nil ? "Nothing close to “\(searchedQuery)”." : "Nothing close to this file.")
+                Text((reference == nil ? "Nothing close to “\(searchedQuery)”" : "Nothing close to this file") + (model.indexing ? " yet: still indexing." : "."))
                     .font(.system(size: 13)).foregroundStyle(.secondary)
                     .padding(.horizontal, 18).frame(height: 44)
                     .background(.regularMaterial, in: Capsule())

@@ -46,8 +46,10 @@ extension AppModel {
         guard !indexing else { return }
         indexingOptions[key] = value
         UserDefaults.standard.set(indexingOptions, forKey: "indexingOptions")
-        do { applyStatus(try await client.request("configure", configureArguments)) }
-        catch { self.error = error.localizedDescription }
+        await withLiveUpdatesHeld {
+            do { applyStatus(try await client.request("configure", configureArguments)) }
+            catch { self.error = error.localizedDescription }
+        }
         await loadRecent()
     }
 }

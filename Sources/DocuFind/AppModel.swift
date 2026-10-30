@@ -85,6 +85,8 @@ final class AppModel: ObservableObject {
     var watcher: FileWatcher?
     var livePending = Set<String>()
     var liveTask: Task<Void, Never>?
+    /// Set while a change to folders or options goes to the worker: no update of changed files starts meanwhile.
+    var holdingLiveUpdates = false
     let dataDirectory: URL
 
     private init() {
@@ -167,6 +169,23 @@ final class AppModel: ObservableObject {
     }
 
     var setupNeeded: Bool { !dependenciesReady || !modelDownloaded || !modelPrepared }
+
+    /// While the model loads, the worker's words for it, with how far a rebuild for the Neural Engine has got: macOS can
+    /// drop its copy of the model (storage pressure, a system update), and building it again takes minutes.
+    func modelLoadingText(at date: Date) -> String? {
+        guard modelLoading else { return nil }
+        let text = message.localizedCaseInsensitiveContains("model") ? message : "Loading the search model…"
+        guard let preparation = modelPreparation, preparation.start < 1 else { return text }
+        return "\(text) \(Int(preparation.fraction(at: date) * 100))%"
+    }
+
+    /// For whoever searches while indexing runs (the first thing most people try): results only cover what is done.
+    var indexingNotice: String? {
+        guard indexing else { return nil }
+        let share = indexingFraction.map { " (\(Int($0 * 100))%)" } ?? ""
+        let files = indexedCount == 1 ? "file" : "files"
+        return "Still indexing\(share). Results only cover the \(indexedCount.formatted()) \(files) done so far."
+    }
 
     func finishOnboarding() {
         UserDefaults.standard.set(true, forKey: "onboardingComplete")
@@ -393,13 +412,15 @@ final class AppModel: ObservableObject {
 
     func removeRoot(_ root: String) async {
         guard !indexing else { return }
-        do {
-            _ = try await client.request("remove_root", ["path": root])
-            roots.removeAll { $0 == root }
-            saveSettings()
-            restartWatching()
-            applyStatus(try await client.request("status"))
-        } catch { self.error = error.localizedDescription }
+        await withLiveUpdatesHeld {
+            do {
+                _ = try await client.request("remove_root", ["path": root])
+                roots.removeAll { $0 == root }
+                saveSettings()
+                restartWatching()
+                applyStatus(try await client.request("status"))
+            } catch { self.error = error.localizedDescription }
+        }
     }
 
     func chooseReference() {

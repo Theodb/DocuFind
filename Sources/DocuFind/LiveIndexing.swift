@@ -37,7 +37,7 @@ extension AppModel {
     /// Indexes the files changed since the last update, unless something else is using the worker.
     func runPendingUpdates() {
         guard !livePending.isEmpty, liveTask == nil, connected, dependenciesReady,
-              !indexing, !installing else { return }
+              !indexing, !installing, !holdingLiveUpdates else { return }
         let paths = Array(livePending)
         livePending.removeAll()
         liveTask = Task { [weak self] in
@@ -64,6 +64,19 @@ extension AppModel {
 }
 
 extension AppModel {
+    /// Runs a change to folders or options. The worker turns those down while it updates the index, even for a few
+    /// changed files in the background, which nothing on screen shows: that update finishes first (it takes seconds),
+    /// and the next one waits until the change is made.
+    func withLiveUpdatesHeld(_ change: () async -> Void) async {
+        holdingLiveUpdates = true
+        defer {
+            holdingLiveUpdates = false
+            runPendingUpdates()
+        }
+        if let liveTask { await liveTask.value }
+        await change()
+    }
+
     /// Updates only the given folders or files, like a live update, and waits for it.
     func indexPaths(_ paths: [String]) async throws -> [String: Any] {
         if let liveTask { await liveTask.value }
@@ -111,12 +124,14 @@ extension AppModel {
         largeFolders.removeAll { $0.path == path || $0.path.hasPrefix(path + "/") }
         saveSettings()
         let wasIndexing = indexing
-        if wasIndexing {
-            await cancel()
-            while indexing { try? await Task.sleep(nanoseconds: 200_000_000) }
+        await withLiveUpdatesHeld {
+            if wasIndexing {
+                await cancel()
+                while indexing { try? await Task.sleep(nanoseconds: 200_000_000) }
+            }
+            do { applyStatus(try await client.request("configure", configureArguments)) }
+            catch { self.error = error.localizedDescription }
         }
-        do { applyStatus(try await client.request("configure", configureArguments)) }
-        catch { self.error = error.localizedDescription }
         if wasIndexing { await index() }
     }
 
@@ -135,8 +150,10 @@ extension AppModel {
         guard !indexing else { return }
         skippedFolders.removeAll { $0 == path }
         saveSettings()
-        do { applyStatus(try await client.request("configure", configureArguments)) }
-        catch { self.error = error.localizedDescription }
+        await withLiveUpdatesHeld {
+            do { applyStatus(try await client.request("configure", configureArguments)) }
+            catch { self.error = error.localizedDescription }
+        }
     }
 }
 
@@ -148,8 +165,10 @@ extension AppModel {
         guard !indexing else { return }
         if let code { indexCode = code; UserDefaults.standard.set(code, forKey: "indexCode") }
         if let data { indexData = data; UserDefaults.standard.set(data, forKey: "indexData") }
-        do { applyStatus(try await client.request("configure", configureArguments)) }
-        catch { self.error = error.localizedDescription }
+        await withLiveUpdatesHeld {
+            do { applyStatus(try await client.request("configure", configureArguments)) }
+            catch { self.error = error.localizedDescription }
+        }
         await loadRecent()
     }
 }

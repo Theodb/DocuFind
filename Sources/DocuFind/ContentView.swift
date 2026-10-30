@@ -41,10 +41,7 @@ struct DocuFindView: View {
     /// minutes, so a load that reports progress shows how far it has got.
     private func statusLine(at date: Date) -> String {
         guard working else { return status }
-        if model.modelLoading, let preparation = model.modelPreparation, preparation.start < 1 {
-            return "\(model.message) \(Int(preparation.fraction(at: date) * 100))%"
-        }
-        return model.message
+        return model.modelLoadingText(at: date) ?? model.message
     }
 
     private var status: String {

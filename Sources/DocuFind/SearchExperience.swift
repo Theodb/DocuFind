@@ -223,7 +223,9 @@ struct SearchExperience: View {
             VStack(spacing: 14) {
                 searchField(compact: false)
                     .frame(maxWidth: 600)
-                if model.indexedCount > 0 && model.dependenciesReady {
+                if SearchStatusNote.shows(model, includeIndexing: false) {
+                    SearchStatusNote(model: model, includeIndexing: false)
+                } else if model.indexedCount > 0 && model.dependenciesReady {
                     ScopeBar(model: model) { focus.wrappedValue = true }
                 }
             }
@@ -315,6 +317,10 @@ struct SearchExperience: View {
             }
             .padding(.top, 88).padding(.bottom, 24)
             if model.searching {
+                // A search typed while the model loads waits for it: said, so the wait isn't a mystery.
+                if SearchStatusNote.shows(model, includeIndexing: false) {
+                    SearchStatusNote(model: model, includeIndexing: false).frame(maxWidth: .infinity).padding(.bottom, 20)
+                }
                 ResultsPlaceholder(columns: Self.gridColumns)
             } else if !visible.isEmpty {
                 let spotlight = visible[focusedIndex]
@@ -355,6 +361,10 @@ struct SearchExperience: View {
                 Label(notice, systemImage: "quote.opening").font(.system(size: 12.5)).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let indexing = model.indexingNotice {
+                Label(indexing, systemImage: "hourglass").font(.system(size: 12.5)).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -363,7 +373,8 @@ struct SearchExperience: View {
             Text(model.results.isEmpty ? "Nothing close to this yet" : "No \(KindFilter.name(model.filter).lowercased()) match this")
                 .font(.system(size: 19, weight: .semibold))
             Text(model.results.isEmpty
-                 ? (model.indexedCount == 0 ? "Index a folder first, then search again." : "Try describing it another way, or search with a file that looks or sounds like it.")
+                 ? (model.indexing ? "DocuFind is still indexing, and files become searchable as they finish. Try again in a little while."
+                    : model.indexedCount == 0 ? "Index a folder first, then search again." : "Try describing it another way, or search with a file that looks or sounds like it.")
                  : "Switch back to All to see all \(model.results.count) matches.")
                 .font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
@@ -552,6 +563,33 @@ private struct SearchField: View {
 }
 
 /// The painted glow behind the search field. It drifts slowly and brightens while searching.
+/// What the search is waiting on, said where people search: the model still loading (first: nothing can be found
+/// until it's in), then an index still being built.
+struct SearchStatusNote: View {
+    @ObservedObject var model: AppModel
+    /// Off where the page already shows the indexing on its own.
+    var includeIndexing = true
+
+    static func shows(_ model: AppModel, includeIndexing: Bool = true) -> Bool {
+        model.modelLoading || (includeIndexing && model.indexing)
+    }
+
+    var body: some View {
+        // Ticks for the percentage of a rebuild for the Neural Engine, which the worker reports only now and then.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let text = model.modelLoadingText(at: context.date) ?? (includeIndexing ? model.indexingNotice : nil) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Text(text).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).monospacedDigit()
+                }
+                .padding(.horizontal, 14).frame(height: 30)
+                .background(.regularMaterial, in: Capsule())
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+}
+
 struct SearchAura: View {
     private func animate(_ busy: Bool) {
         guard !reduceMotion else { return }
@@ -1277,6 +1315,8 @@ struct FileCover: View {
     /// A document as itself, with no paint around it: for the preview.
     var bare = false
     @State private var thumbnail: NSImage?
+    /// The preview's full-resolution photo is on screen, taking the thumbnail's place.
+    @State private var photoLoaded = false
     /// The page in view of a whole PDF and its page count, as it scrolls.
     @State private var pdfPosition: (page: Int, count: Int)?
     @State private var returnRequest = 0
@@ -1348,9 +1388,16 @@ struct FileCover: View {
                         }
                         .clipped()
                         .overlay {
-                            Image(nsImage: thumbnail).resizable().scaledToFit()
-                                .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+                            // The thumbnail until the full photo is in; in the preview, the full photo zooms.
+                            if !photoLoaded {
+                                Image(nsImage: thumbnail).resizable().scaledToFit()
+                                    .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+                            }
                         }
+                        .overlay {
+                            if bare && scrollable { ZoomableImage(path: item.path, onLoad: { photoLoaded = true }).id(item.path) }
+                        }
+                        .onChange(of: item.path) { _, _ in photoLoaded = false }
                 } else if item.kind == "text" && !minimal && bare {
                     if item.isPDF, let page = item.page {
                         PDFPassageCover(item: item, page: page, terms: terms)

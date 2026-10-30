@@ -35,6 +35,8 @@ enum NestedScrolling {
     static func choose(in content: NSView, at point: NSPoint, deltaY: CGFloat, deltaX: CGFloat) -> NSScrollView? {
         let chain = scrollViews(in: content, at: point)
         guard let first = chain.first else { return nil }
+        // A zoomed photo keeps the whole gesture, at its edges too: panning it never scrolls the page behind.
+        if let photo = first as? ZoomingImageView, photo.magnification > 1.01 { return photo }
         // Sideways gestures are left alone.
         guard abs(deltaY) >= abs(deltaX), deltaY != 0 else { return first }
         return chain.first { canScroll($0, deltaY: deltaY) } ?? first
