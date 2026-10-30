@@ -1,40 +1,53 @@
 import SwiftUI
 
-/// The keyboard tour: coach marks on the real search page. Each step lights up what to use next, says which key to
-/// press, and moves on once you have done it. Shown once after setup; Help → Keyboard Shortcuts Tour brings it back.
+/// The tour, in two parts. While the first index runs, the search page explains what is happening; once there is
+/// something to find, it shows the quick search bar and its keys, with hints above the bar itself. Each step moves on
+/// once you have done it. Shown once after setup; Help → Keyboard Shortcuts Tour brings it back.
 enum TourStep: Int, CaseIterable {
-    case search, move, look, open, anywhere
+    case indexing, anywhere, search, move, look, open
 
-    static let seenKey = "shortcutTutorialSeen"
+    /// Its own key, so people who took the earlier tour of the results page still get this one.
+    static let seenKey = "quickSearchTourSeen"
+
+    /// Steps from here on are hinted inside the quick search bar; the ones before, on the main window.
+    var inQuickBar: Bool { rawValue >= TourStep.search.rawValue }
 
     var title: String {
         switch self {
+        case .indexing: "DocuFind is reading your files"
+        case .anywhere: "Search from any app"
         case .search: "Describe what you're looking for"
         case .move: "Move between matches"
         case .look: "Look closer"
         case .open: "Open it"
-        case .anywhere: "Search from any app"
         }
     }
 
-    var message: String {
+    @MainActor var message: String {
         switch self {
-        case .search: "A few words are enough, like \u{201C}invoice from the plumber\u{201D}. Then press Return."
-        case .move: "Use the arrow keys to step through the results."
-        case .look: "Space shows a document or photo large, and Space again goes back. On a recording, Space plays it."
-        case .open: "Return (Enter) opens the file in its app."
-        case .anywhere: "Press the shortcut in any app to bring up the search bar, even with this window closed."
+        case .indexing: "It builds a private index on this Mac: your files, the model and the index never leave it. Files become searchable as they finish. When it's done, you'll see how to search from anywhere."
+        case .anywhere: GlobalShortcut.shared.isEnabled && GlobalShortcut.shared.isRegistered
+            ? "Press the shortcut in any app, even with this window closed, to bring up the search bar."
+            : "The search bar's shortcut is off. Turn it on in Settings, or open the bar from here."
+        case .search: "A few words are enough. Then press Return."
+        case .move: "Step through the matches."
+        case .look: "Space shows it large, Space again goes back. On a recording, it plays."
+        case .open: "Return opens the file in its app. Esc closes the bar."
         }
     }
 
     @MainActor var keys: [String] {
         switch self {
-        case .search, .open: ["↩ Return"]
+        case .indexing: []
+        case .anywhere: GlobalShortcut.shared.isEnabled && GlobalShortcut.shared.isRegistered ? [GlobalShortcut.shared.shortcut.display] : []
+        case .search: ["↩ Return"]
         case .move: ["←", "→"]
         case .look: ["Space"]
-        case .anywhere: [GlobalShortcut.shared.shortcut.display]
+        case .open: ["↩ Return", "esc"]
         }
     }
+
+    var progress: String { "\(rawValue + 1) of \(TourStep.allCases.count)" }
 }
 
 /// Where each step's target sits on the page.
@@ -110,22 +123,25 @@ struct TourOverlay: View {
     }
 
     private func bubble(_ step: TourStep) -> some View {
-        let last = step == TourStep.allCases.last
-        return VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("\(step.rawValue + 1) of \(TourStep.allCases.count)").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-                    .monospacedDigit()
+                Text(step.progress).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).monospacedDigit()
                 Spacer()
-                if !last {
-                    Button("Skip tour") { model.endTour() }.buttonStyle(.plain).font(.system(size: 11.5)).foregroundStyle(.secondary)
-                }
+                Button("Skip tour") { model.endTour() }.buttonStyle(.plain).font(.system(size: 11.5)).foregroundStyle(.secondary)
             }
-            Text(step.title).font(.system(size: 15, weight: .semibold))
+            if step == .indexing {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(.green)
+                    Text(step.title).font(.system(size: 15, weight: .semibold))
+                }
+            } else {
+                Text(step.title).font(.system(size: 15, weight: .semibold))
+            }
             Text(step.message).font(.system(size: 12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 4) {
-                ForEach(step.keys, id: \.self) { keycap($0) }
+                ForEach(step.keys, id: \.self) { TourKeycap(label: $0) }
                 Spacer(minLength: 12)
-                Button(last ? "Done" : "Next") { model.advanceTour(from: step) }.controlSize(.small)
+                action(step)
             }
             .padding(.top, 4)
         }
@@ -135,7 +151,21 @@ struct TourOverlay: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.16)))
         .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tour, step \(step.rawValue + 1) of \(TourStep.allCases.count): \(step.title)")
+        .accessibilityLabel("Tour, step \(step.progress): \(step.title)")
+    }
+
+    /// While indexing runs, the tour waits for it but can go on early; the next step opens the search bar for you.
+    @ViewBuilder private func action(_ step: TourStep) -> some View {
+        switch step {
+        case .indexing where model.indexing && model.indexedCount > 0:
+            Button("Try It Now") { model.advanceTour(from: step) }.controlSize(.small)
+        case .indexing where model.indexing:
+            EmptyView()
+        case .anywhere:
+            Button("Open Search Bar") { QuickSearchController.shared.show() }.controlSize(.small)
+        default:
+            Button("Next") { model.advanceTour(from: step) }.controlSize(.small)
+        }
     }
 
     /// Below the target when there is room, above it otherwise, kept inside the page; without a target (nothing on
@@ -154,12 +184,47 @@ struct TourOverlay: View {
         return CGSize(width: x, height: y)
     }
 
-    private func keycap(_ label: String) -> some View {
+}
+
+/// The quick search part of the tour: one slim hint above the bar, in the room its glow leaves, so it never covers
+/// the results or the preview below.
+struct QuickBarTourHint: View {
+    @ObservedObject var model: AppModel
+    let step: TourStep
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(step.progress).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).monospacedDigit()
+            VStack(alignment: .leading, spacing: 1) {
+                Text(step.title).font(.system(size: 13, weight: .semibold))
+                Text(step.message).font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) { ForEach(step.keys, id: \.self) { TourKeycap(label: $0) } }
+            Button(step == TourStep.allCases.last ? "Done" : "Skip tour") { model.endTour() }
+                .buttonStyle(.plain).font(.system(size: 11.5)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16).frame(width: 600, height: 50)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.accentColor.opacity(0.55)))
+        .shadow(color: .black.opacity(0.22), radius: 14, y: 6)
+        .id(step)
+        .transition(.opacity.combined(with: .offset(y: 6)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Tour, step \(step.progress): \(step.title). \(step.message)")
+    }
+}
+
+/// A key as printed on the keyboard, for the tour's hints.
+struct TourKeycap: View {
+    let label: String
+
+    var body: some View {
         Text(label).font(.system(size: 12, weight: .semibold, design: .rounded))
             .padding(.horizontal, 8).frame(minWidth: 28, minHeight: 24)
             .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.07)))
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.22)))
-            .accessibilityLabel(label == "↩ Return" ? "Return" : label)
+            .accessibilityLabel(label == "↩ Return" ? "Return" : label == "esc" ? "Escape" : label)
     }
 }
 

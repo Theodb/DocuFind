@@ -115,13 +115,10 @@ struct SearchExperience: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.86), value: preview?.id)
         // The keyboard tour over the real page; hidden while a preview covers it.
         .overlayPreferenceValue(TourAnchorKey.self) { anchors in
-            if preview == nil, model.tourStep != nil { TourOverlay(model: model, anchors: anchors) }
+            if preview == nil, let step = model.tourStep, !step.inQuickBar { TourOverlay(model: model, anchors: anchors) }
         }
-        .onChange(of: model.searching) { _, searching in if !searching && model.hasSearched { model.tourDid(.search) } }
-        .onChange(of: preview?.id) { old, id in
+        .onChange(of: preview?.id) { _, id in
             if id != nil { focus.wrappedValue = false }
-            // Space opened the preview and Space closed it again.
-            if old != nil && id == nil { model.tourDid(.look) }
         }
         // Typing into the field (Cmd-F) closes the preview, so its arrows and Space don't take the keys.
         .onChange(of: focus.wrappedValue) { _, focused in if focused { preview = nil } }
@@ -183,7 +180,6 @@ struct SearchExperience: View {
         guard visible.indices.contains(next) else { return }
         PassagePlayer.shared.stop()
         focusedID = visible[next].id
-        model.tourDid(.move)
     }
 
     private func focus(on item: SearchItem) {
@@ -247,9 +243,15 @@ struct SearchExperience: View {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
-            if model.indexedCount == 0 || !model.dependenciesReady {
+            // While indexing, what is happening instead of an empty library (and above what was opened lately).
+            if model.indexing && model.dependenciesReady {
+                indexingCard
+                    .tourAnchor(.indexing)
+                    .padding(.bottom, model.indexedCount > 0 && !jumpBackIn.isEmpty ? 32 : 0)
+            }
+            if !model.indexing && (model.indexedCount == 0 || !model.dependenciesReady) {
                 setupCard
-            } else if !jumpBackIn.isEmpty {
+            } else if model.indexedCount > 0 && !jumpBackIn.isEmpty {
                 Text("Recent").font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
                     .padding(.bottom, 12)
                 // As many per row as fit; narrow windows wrap instead of squeezing.
@@ -260,6 +262,25 @@ struct SearchExperience: View {
                 }
             }
         }
+    }
+
+    /// The index being built: how far it is, and that it all happens on this Mac.
+    private var indexingCard: some View {
+        VStack(spacing: 12) {
+            Text("Indexing your files").font(.system(size: 19, weight: .semibold))
+            Text(model.indexingSummary)
+                .font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+            Group {
+                if let fraction = model.indexingFraction { ProgressView(value: fraction) } else { ProgressView().progressViewStyle(.linear) }
+            }
+            .frame(maxWidth: 360)
+            .animation(.easeOut(duration: 0.4), value: model.indexingFraction)
+            Label("Files become searchable as they finish. Everything stays on this Mac.", systemImage: "lock.fill")
+                .font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 2)
+        }
+        .padding(36).frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Color.primary.opacity(0.045)))
+        .accessibilityElement(children: .combine)
     }
 
     private var setupCard: some View {
@@ -306,7 +327,6 @@ struct SearchExperience: View {
                     onPreview: { preview = spotlight }, onOpen: { open(spotlight) },
                     onReveal: { reveal(spotlight) }, onSimilar: { findSimilar(spotlight) }
                 )
-                .tourAnchor(.move, .look)
                 if visible.count > 1 {
                     sectionHeader("All matches", detail: "\(visible.count) files").padding(.top, 56)
                     LazyVGrid(columns: Self.gridColumns, alignment: .leading, spacing: 28) {
@@ -393,7 +413,6 @@ struct SearchExperience: View {
         SearchField(model: model, focus: focus, compact: compact, canSearch: canSearch,
                     onSubmit: runSearch, onClear: { model.clearSearch(); focus.wrappedValue = true })
             .matchedGeometryEffect(id: "search", in: namespace)
-            .tourAnchor(.search)
     }
 
     private func sectionHeader(_ title: String, detail: String?) -> some View {
@@ -407,7 +426,6 @@ struct SearchExperience: View {
     private func runSearch() { if canSearch { Task { await model.search() } } }
     private func open(_ item: SearchItem) {
         FileOpener.open(item, query: model.searchedQuery)
-        model.tourDid(.open)
     }
     private func reveal(_ item: SearchItem) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)]) }
     private func findSimilar(_ item: SearchItem) {
@@ -1114,7 +1132,6 @@ struct SpotlightCard: View {
             Spacer(minLength: 8)
             HStack(spacing: 8) {
                 Button("Open", action: onOpen).buttonStyle(.borderedProminent)
-                    .tourAnchor(.open)
                 Button("Show in Finder", action: onReveal)
                 Button("Find Similar", action: onSimilar)
             }.controlSize(.large)

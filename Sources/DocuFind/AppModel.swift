@@ -192,7 +192,8 @@ final class AppModel: ObservableObject {
             && UserDefaults.standard.bool(forKey: "onboardingComplete") && !UserDefaults.standard.bool(forKey: TourStep.seenKey)
     }
 
-    func startTour() { tourStep = .search }
+    /// Starts with the indexing while there is nothing to search yet, otherwise straight at the search bar.
+    func startTour() { tourStep = indexing || indexedCount == 0 ? .indexing : .anywhere }
 
     /// Moves the tour on when the user has just done what its current step asks.
     func tourDid(_ step: TourStep) {
@@ -237,6 +238,8 @@ final class AppModel: ObservableObject {
         await loadRecent()
         restartWatching()
         runPendingUpdates()
+        // Indexing done (or stopped) with files to find: the tour goes on to the search bar.
+        if tourStep == .indexing && indexedCount > 0 { tourStep = .anywhere }
     }
 
     var configureArguments: [String: Any] { ["roots": roots, "skipped": skippedFolders,

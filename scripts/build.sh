@@ -20,7 +20,8 @@ if xcrun --find xcodebuild >/dev/null 2>&1 && xcodebuild -version >/dev/null 2>&
 fi
 
 echo "Building DocuFind for $ARCHITECTURE with the installed command-line tools…"
-SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+# DOCUFIND_SDK picks another installed SDK: the command-line tools' macOS 27 SDK lacks SwiftUI's macro plugin.
+SDK_PATH="${DOCUFIND_SDK:-$(xcrun --sdk macosx --show-sdk-path)}"
 STAGING_DIR="$(mktemp -d "$BUILD_ROOT/staging.XXXXXX")"
 trap 'rm -rf "$STAGING_DIR"' EXIT
 APP_STAGING="$STAGING_DIR/DocuFind.app"

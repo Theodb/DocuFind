@@ -65,7 +65,7 @@ private struct ShortcutTourButton: View {
         Button("Keyboard Shortcuts Tour") {
             NSApp.activate(ignoringOtherApps: true)
             if !NSApp.windows.contains(where: { $0.identifier?.rawValue.hasPrefix("main") == true && $0.isVisible }) { openWindow(id: "main") }
-            // The tour runs on the search page, starting at its field.
+            // The tour starts on the search page, then moves into the quick search bar.
             NotificationCenter.default.post(name: .omniFocusSearch, object: nil)
             model.startTour()
         }
@@ -118,10 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.removeOldSpotlightEntries()
         NestedScrolling.install()
         // The floating search bar, from anywhere: a global hot key plus a login item.
-        GlobalShortcut.shared.onPress = {
-            QuickSearchController.shared.toggle()
-            AppModel.shared.tourDid(.anywhere)
-        }
+        GlobalShortcut.shared.onPress = { QuickSearchController.shared.toggle() }
         GlobalShortcut.shared.register()
         LoginItem.enableOnFirstLaunch()
         // The docufind command-line tool talks to this running copy and its loaded model.

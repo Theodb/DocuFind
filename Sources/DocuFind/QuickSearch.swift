@@ -52,6 +52,22 @@ final class QuickSearchController {
     /// The app that was in front when the bar opened; it gets the keyboard back when the bar closes.
     private var previousApp: NSRunningApplication?
     private var activationObserver: NSObjectProtocol?
+    /// Watches for the end of a macOS prompt that took the focus from the bar.
+    private var promptObserver: NSObjectProtocol?
+
+    /// The system agents that show macOS's own prompts: permissions ("Allow DocuFind to access…"), passwords,
+    /// and warnings about opening a file.
+    private static let promptAgents: Set<String> = ["com.apple.tcc.AuthorizationPromptService", "com.apple.UserNotificationCenter",
+                                                    "com.apple.coreservices.uiagent", "com.apple.SecurityAgent"]
+    private static let promptAgentNames: Set<String> = ["AuthorizationPromptService", "UserNotificationCenter", "CoreServicesUIAgent", "SecurityAgent"]
+
+    /// Whether one of those prompts is in front: by the active app, or by a window of theirs on screen (the prompt
+    /// can show before its agent becomes the active app).
+    private static func systemPromptShowing() -> Bool {
+        if let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier, promptAgents.contains(front) { return true }
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return windows.contains { promptAgentNames.contains($0[kCGWindowOwnerName as String] as? String ?? "") }
+    }
 
     /// The front window of another app, to keep DocuFind's main window behind it.
     private static func frontWindowNumber(of pid: pid_t) -> Int? {
@@ -78,6 +94,8 @@ final class QuickSearchController {
         installKeyMonitor()
         keysToResults = false
         openedAt = Date()
+        // However it opened (the shortcut, the menu or the tour's button), the tour goes on inside the bar.
+        AppModel.shared.tourDid(.anywhere)
         // macOS only gives the keyboard to the active app, so DocuFind activates for the bar, like
         // Spotlight, and hands the focus back when it closes. Only the bar is brought forward.
         panel.makeKeyAndOrderFront(nil)
@@ -168,13 +186,48 @@ final class QuickSearchController {
 
     func panelLostFocus() {
         guard !holdOpen, Date().timeIntervalSince(openedAt) > 0.6 else { return }
-        hide()
+        // Reading a file for its preview can make macOS ask for access (Desktop, Documents, a drive...). That prompt
+        // takes the focus but isn't a click elsewhere: the bar stays, and gets the keys back once it's answered.
+        // Looked at a moment later too, since the prompt's window can arrive just after the focus leaves.
+        if Self.systemPromptShowing() { return waitForPrompt() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, let panel = self.panel, panel.isVisible, !panel.isKeyWindow, !self.holdOpen, self.promptObserver == nil else { return }
+            if Self.systemPromptShowing() { self.waitForPrompt() } else { self.hide() }
+        }
+    }
+
+    private func waitForPrompt() {
+        guard promptObserver == nil else { return }
+        promptObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                // A second prompt right after the first (one per folder): keep waiting.
+                if let id = app?.bundleIdentifier, Self.promptAgents.contains(id) { return }
+                self.stopWaitingForPrompt()
+                guard let panel = self.panel, panel.isVisible else { return }
+                if app?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+                    // Answered: the bar takes the keys back where they were (the field, or the results).
+                    panel.makeKeyAndOrderFront(nil)
+                    if !self.keysToResults { self.focusField() }
+                } else {
+                    // Another app came forward after the prompt: the user moved on.
+                    self.hide(restoringFocus: false)
+                }
+            }
+        }
+    }
+
+    private func stopWaitingForPrompt() {
+        promptObserver.map(NSWorkspace.shared.notificationCenter.removeObserver)
+        promptObserver = nil
     }
 
     /// Closes the bar. `restoringFocus` returns to the app that was in front, which is right for Esc or a click
     /// elsewhere, but not after opening a file: the window just opened must stay in front.
     func hide(restoringFocus: Bool = true) {
         guard let panel, panel.isVisible else { return }
+        stopWaitingForPrompt()
         panel.orderOut(nil)
         PassagePlayer.shared.stop()
         if QueryRecorder.shared.isRecording, QueryRecorder.shared.startedByQuickBar { QueryRecorder.shared.cancel() }
@@ -264,6 +317,12 @@ struct QuickSearchView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.86), value: previewing)
         .padding(.horizontal, 30).padding(.top, 84)
         .frame(width: 860, height: 660, alignment: .top)
+        // The tour's hint, in the room above the bar.
+        .overlay(alignment: .top) {
+            if let step = model.tourStep, step.inQuickBar { QuickBarTourHint(model: model, step: step).padding(.top, 20) }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.86), value: model.tourStep)
+        .onChange(of: previewing) { was, now in if was && !now { model.tourDid(.look) } }
         // Observed here, not inside the glass container: that renders in its own AppKit host.
         .onChange(of: query) { _, _ in edited() }
         .onAppear {
@@ -601,6 +660,7 @@ struct QuickSearchView: View {
         searchedQuery = text
         selection = 0
         searching = false
+        if !results.isEmpty { model.tourDid(.search) }
     }
 
     /// Return searches what is typed (unless its results are already shown), then hands the keys to the results.
@@ -618,7 +678,7 @@ struct QuickSearchView: View {
     private func act() {
         guard shown.indices.contains(selection) else { return }
         let item = shown[selection]
-        if item.kind == "audio" { PassagePlayer.shared.toggle(item) } else { previewing.toggle() }
+        if item.kind == "audio" { PassagePlayer.shared.toggle(item); model.tourDid(.look) } else { previewing.toggle() }
     }
 
     /// The selected result large, like the main window's preview: the whole document or photo, with the arrows and
@@ -644,7 +704,9 @@ struct QuickSearchView: View {
     private func move(_ delta: Int) {
         guard !shown.isEmpty else { return }
         // Stops at the ends, like the chevrons and dragging.
+        let before = selection
         select(max(0, min(shown.count - 1, selection + delta)))
+        if selection != before { model.tourDid(.move) }
     }
 
     private func select(_ index: Int) {
@@ -655,6 +717,7 @@ struct QuickSearchView: View {
 
     private func open(_ item: SearchItem) {
         FileOpener.open(item, query: searchedQuery)
+        model.tourDid(.open)
         onLeave()
     }
 }
