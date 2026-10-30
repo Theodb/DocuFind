@@ -5,6 +5,14 @@
         <language>en</language>
         <item>
             <title>DocuFind 0.1.0</title>
+            <pubDate>Fri, 30 Oct 2026 16:51:24 GMT</pubDate>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/Theodb/DocuFind/releases/download/v0.1.0/DocuFind-0.1.0.dmg" length="9177226" type="application/octet-stream" sparkle:edSignature="bGp+g7hXPbzwYiW8/ctAvfQtckFPiuek2gfoVa20PL1fW9iGeFVpP7h+cwHLMuVsWNFeDFvwgVAxG2M4rK2zCA=="/>
+        </item>
+        <item>
+            <title>DocuFind 0.1.0</title>
             <pubDate>Thu, 22 Oct 2026 08:28:07 GMT</pubDate>
             <sparkle:version>10</sparkle:version>
             <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
